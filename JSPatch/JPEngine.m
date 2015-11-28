@@ -10,6 +10,16 @@
 #import <objc/message.h>
 #import <UIKit/UIApplication.h>
 
+@interface _JPWeakAssociatedObject : NSObject
+
+@property (nonatomic, weak) id value;
+
+@end
+
+@implementation _JPWeakAssociatedObject
+
+@end
+
 @interface JPBoxing : NSObject
 @property (nonatomic) id obj;
 @property (nonatomic) void *pointer;
@@ -288,6 +298,23 @@ static id getPropIMP(id slf, SEL selector, NSString *propName) {
 static void setPropIMP(id slf, SEL selector, id val, NSString *propName) {
     objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
+static void setAtomicPropIMP(id slf, SEL selector, id val, NSString *propName) {
+    objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_RETAIN);
+}
+static void setWeakPropIMP(id slf, SEL selector, id val, NSString *propName) {
+    _JPWeakAssociatedObject *assoc = objc_getAssociatedObject(slf, propKey(propName));
+    if (!assoc) {
+        assoc = [[_JPWeakAssociatedObject alloc] init];
+        setPropIMP(slf, selector, assoc, propName);
+    }
+    assoc.value = val;
+}
+static void setCopyPropIMP(id slf, SEL selector, id val, NSString *propName) {
+    objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+static void setAtomicCopyPropIMP(id slf, SEL selector, id val, NSString *propName) {
+    objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_COPY);
+}
 
 static char *methodTypesInProtocol(NSString *protocolName, NSString *selectorName, BOOL isInstanceMethod, BOOL isRequired)
 {
@@ -385,6 +412,10 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
 #pragma clang diagnostic ignored "-Wundeclared-selector"
     class_addMethod(cls, @selector(getProp:), (IMP)getPropIMP, "@@:@");
     class_addMethod(cls, @selector(setProp:forKey:), (IMP)setPropIMP, "v@:@@");
+    class_addMethod(cls, @selector(setAtomicProp:forKey:), (IMP)setAtomicPropIMP, "v@:@@");
+    class_addMethod(cls, @selector(setWeakProp:forKey:), (IMP)setWeakPropIMP, "v@:@@");
+    class_addMethod(cls, @selector(setCopyProp:forKey:), (IMP)setCopyPropIMP, "v@:@@");
+    class_addMethod(cls, @selector(setAtomicCopyProp:forKey:), (IMP)setAtomicCopyPropIMP, "v@:@@");
 #pragma clang diagnostic pop
 
     return @{@"cls": className};
