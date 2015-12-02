@@ -66,7 +66,7 @@ JPBOXING_GEN(boxWeakObj, weakObj, id)
 @implementation JPEngine
 
 static JSContext *_context;
-static NSString *_regexStr = @"\\.\\s*(\\w+)\\s*\\(";
+static NSString *_regexStr = @"(?<!\\\\)\\.\\s*(\\w+)\\s*\\(";
 static NSString *_replaceStr = @".__c(\"$1\")(";
 static NSRegularExpression* _regex;
 static NSObject *_nullObj;
@@ -113,20 +113,20 @@ static NSMutableDictionary *registeredStruct;
 
     __weak JSContext *weakCtx = context;
     context[@"dispatch_after"] = ^(double time, JSValue *func) {
-        JSValue *currSelf = weakCtx[@"self"];
+        id currSelf = formatJSToOC(weakCtx[@"self"]);
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(time * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             JSValue *prevSelf = weakCtx[@"self"];
-            weakCtx[@"self"] = currSelf;
+            weakCtx[@"self"] = formatOCToJS([JPBoxing boxWeakObj:currSelf]);
             [func callWithArguments:nil];
             weakCtx[@"self"] = prevSelf;
         });
     };
     
     context[@"dispatch_async_main"] = ^(JSValue *func) {
-        JSValue *currSelf = weakCtx[@"self"];
+        id currSelf = formatJSToOC(weakCtx[@"self"]);
         dispatch_async(dispatch_get_main_queue(), ^{
             JSValue *prevSelf = weakCtx[@"self"];
-            weakCtx[@"self"] = currSelf;
+            weakCtx[@"self"] = formatOCToJS([JPBoxing boxWeakObj:currSelf]);
             [func callWithArguments:nil];
             weakCtx[@"self"] = prevSelf;
         });
@@ -143,10 +143,10 @@ static NSMutableDictionary *registeredStruct;
     };
     
     context[@"dispatch_async_global_queue"] = ^(JSValue *func) {
-        JSValue *currSelf = weakCtx[@"self"];
+        id currSelf = formatJSToOC(weakCtx[@"self"]);
         dispatch_async(dispatch_get_global_queue(0, 0), ^{
             JSValue *prevSelf = weakCtx[@"self"];
-            weakCtx[@"self"] = currSelf;
+            weakCtx[@"self"] = formatOCToJS([JPBoxing boxWeakObj:currSelf]);
             [func callWithArguments:nil];
             weakCtx[@"self"] = prevSelf;
         });
@@ -165,7 +165,8 @@ static NSMutableDictionary *registeredStruct;
     context[@"_OC_log"] = ^() {
         NSArray *args = [JSContext currentArguments];
         for (JSValue *jsVal in args) {
-            NSLog(@"JSPatch.log: %@", formatJSToOC(jsVal));
+            id obj = formatJSToOC(jsVal);
+            NSLog(@"JSPatch.log: %@", obj == _nilObj ? nil : (obj == _nullObj ? [NSNull null]: obj));
         }
     };
     
@@ -452,6 +453,10 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
 #pragma clang diagnostic ignored "-Wundeclared-selector"
         SEL origForwardSelector = @selector(ORIGforwardInvocation:);
         NSMethodSignature *methodSignature = [slf methodSignatureForSelector:origForwardSelector];
+        if (!methodSignature) {
+            NSCAssert(methodSignature, @"unrecognized selector -ORIGforwardInvocation: for instance %@", slf);
+            return;
+        }
         NSInvocation *forwardInv= [NSInvocation invocationWithMethodSignature:methodSignature];
         [forwardInv setTarget:slf];
         [forwardInv setSelector:origForwardSelector];
@@ -465,12 +470,12 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
     if ([slf class] == slf) {
         [argList addObject:[JSValue valueWithObject:@{@"__clsName": NSStringFromClass([slf class])} inContext:_context]];
     } else {
-        [argList addObject:slf];
+        [argList addObject:[JPBoxing boxWeakObj:slf]];
     }
     
     for (NSUInteger i = 2; i < numberOfArguments; i++) {
         const char *argumentType = [methodSignature getArgumentTypeAtIndex:i];
-        switch(argumentType[0]) {
+        switch(argumentType[0] == 'r' ? argumentType[1] : argumentType[0]) {
         
             #define JP_FWD_ARG_CASE(_typeChar, _type) \
             case _typeChar: {   \
@@ -495,8 +500,7 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
             case '@': {
                 __unsafe_unretained id arg;
                 [invocation getArgument:&arg atIndex:i];
-                static const char *blockType = @encode(typeof(^{}));
-                if (!strcmp(argumentType, blockType)) {
+                if ([arg isKindOfClass:NSClassFromString(@"NSBlock")]) {
                     [argList addObject:(arg ? [arg copy]: _nilObj)];
                 } else {
                     [argList addObject:(arg ? arg: _nilObj)];
@@ -564,13 +568,24 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
     NSArray *params = _formatOCToJSList(argList);
     const char *returnType = [methodSignature methodReturnType];
 
-    switch (returnType[0]) {
+    switch (returnType[0] == 'r' ? returnType[1] : returnType[0]) {
         #define JP_FWD_RET_CALL_JS \
             JSValue *fun = getJSFunctionInObjectHierachy(slf, JPSelectorName); \
             JSValue *jsval; \
             [_JSMethodForwardCallLock lock];   \
             jsval = [fun callWithArguments:params]; \
-            [_JSMethodForwardCallLock unlock];
+            [_JSMethodForwardCallLock unlock]; \
+            while (![jsval isNull] && ![jsval isUndefined] && [jsval hasProperty:@"__isPerformInOC"]) { \
+                NSArray *args = nil;  \
+                JSValue *cb = jsval[@"cb"]; \
+                if ([jsval hasProperty:@"sel"]) {   \
+                    id callRet = callSelector(![jsval[@"clsName"] isUndefined] ? [jsval[@"clsName"] toString] : nil, [jsval[@"sel"] toString], jsval[@"args"], ![jsval[@"obj"] isUndefined] ? jsval[@"obj"] : nil, NO);  \
+                    args = @[[_context[@"_formatOCToJS"] callWithArguments:callRet ? @[callRet] : _formatOCToJSList(@[_nilObj])]];  \
+                }   \
+                [_JSMethodForwardCallLock lock];    \
+                jsval = [cb callWithArguments:args];  \
+                [_JSMethodForwardCallLock unlock];  \
+            }
 
         #define JP_FWD_RET_CASE_RET(_typeChar, _type, _retCode)   \
             case _typeChar : { \
@@ -610,7 +625,6 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
             }
 
         JP_FWD_RET_CASE_RET('@', id, JP_FWD_RET_CODE_ID)
-
         JP_FWD_RET_CASE_RET('^', void*, JP_FWD_RET_CODE_POINTER)
         JP_FWD_RET_CASE_RET('*', void*, JP_FWD_RET_CODE_POINTER)
         JP_FWD_RET_CASE_RET('#', Class, JP_FWD_RET_CODE_CLASS)
@@ -785,12 +799,18 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
             _JSMethodSignatureCache[cls][selectorName] = methodSignature;
         }
         [_JSMethodSignatureLock unlock];
-        NSCAssert(methodSignature, @"unrecognized selector %@ for instance %@", selectorName, instance);
+        if (!methodSignature) {
+            NSCAssert(methodSignature, @"unrecognized selector %@ for instance %@", selectorName, instance);
+            return nil;
+        }
         invocation = [NSInvocation invocationWithMethodSignature:methodSignature];
         [invocation setTarget:instance];
     } else {
         methodSignature = [cls methodSignatureForSelector:selector];
-        NSCAssert(methodSignature, @"unrecognized selector %@ for class %@", selectorName, className);
+        if (!methodSignature) {
+            NSCAssert(methodSignature, @"unrecognized selector %@ for class %@", selectorName, className);
+            return nil;
+        }
         invocation= [NSInvocation invocationWithMethodSignature:methodSignature];
         [invocation setTarget:cls];
     }
@@ -800,7 +820,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
     for (NSUInteger i = 2; i < numberOfArguments; i++) {
         const char *argumentType = [methodSignature getArgumentTypeAtIndex:i];
         id valObj = argumentsObj[i-2];
-        switch (argumentType[0]) {
+        switch (argumentType[0] == 'r' ? argumentType[1] : argumentType[0]) {
                 
                 #define JP_CALL_ARG_CASE(_typeString, _type, _selector) \
                 case _typeString: {                              \
@@ -897,8 +917,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
                     [invocation setArgument:&valObj atIndex:i];
                     break;
                 }
-                static const char *blockType = @encode(typeof(^{}));
-                if (!strcmp(argumentType, blockType)) {
+                if ([(JSValue *)arguments[i-2] hasProperty:@"__isBlock"]) {
                     __autoreleasing id cb = genCallbackBlock(arguments[i-2]);
                     [invocation setArgument:&cb atIndex:i];
                 } else {
@@ -937,7 +956,7 @@ static id callSelector(NSString *className, NSString *selectorName, JSValue *arg
             return formatOCToJS(returnValue);
             
         } else {
-            switch (returnType[0]) {
+            switch (returnType[0] == 'r' ? returnType[1] : returnType[0]) {
                     
                 #define JP_CALL_RET_CASE(_typeString, _type) \
                 case _typeString: {                              \
@@ -1014,7 +1033,8 @@ static id genCallbackBlock(JSValue *jsVal)
 #define BLK_DEFINE_2 cb = ^id(void *p0, void *p1) {
 #define BLK_DEFINE_3 cb = ^id(void *p0, void *p1, void *p2) {
 #define BLK_DEFINE_4 cb = ^id(void *p0, void *p1, void *p2, void *p3) {
-
+#define BLK_INIT_PARAMETERS NSMutableArray *list = [[NSMutableArray alloc] init];
+    
 #define BLK_ADD_OBJ(_paramName) [list addObject:formatOCToJS((__bridge id)_paramName)];
 #define BLK_ADD_INT(_paramName) [list addObject:formatOCToJS([NSNumber numberWithLongLong:(long long)_paramName])];
 
@@ -1031,22 +1051,24 @@ static id genCallbackBlock(JSValue *jsVal)
 };
 
     NSArray *argTypes = [[jsVal[@"args"] toString] componentsSeparatedByString:@","];
-    NSMutableArray *list = [[NSMutableArray alloc] init];
     NSInteger count = argTypes.count;
     id cb;
     if (count == 1) {
         BLK_DEFINE_1
+        BLK_INIT_PARAMETERS
         BLK_TRAITS_ARG(0, p0)
         BLK_END
     }
     if (count == 2) {
         BLK_DEFINE_2
+        BLK_INIT_PARAMETERS
         BLK_TRAITS_ARG(0, p0)
         BLK_TRAITS_ARG(1, p1)
         BLK_END
     }
     if (count == 3) {
         BLK_DEFINE_3
+        BLK_INIT_PARAMETERS
         BLK_TRAITS_ARG(0, p0)
         BLK_TRAITS_ARG(1, p1)
         BLK_TRAITS_ARG(2, p2)
@@ -1054,6 +1076,7 @@ static id genCallbackBlock(JSValue *jsVal)
     }
     if (count == 4) {
         BLK_DEFINE_4
+        BLK_INIT_PARAMETERS
         BLK_TRAITS_ARG(0, p0)
         BLK_TRAITS_ARG(1, p1)
         BLK_TRAITS_ARG(2, p2)
