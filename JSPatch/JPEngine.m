@@ -8,7 +8,10 @@
 #import "JPEngine.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
+
+#if TARGET_OS_IPHONE
 #import <UIKit/UIApplication.h>
+#endif
 
 @interface _JPWeakAssociatedObject : NSObject
 
@@ -189,7 +192,9 @@ static NSMutableDictionary *registeredStruct;
     _JSMethodForwardCallLock = [[NSRecursiveLock alloc] init];
     registeredStruct = [[NSMutableDictionary alloc] init];
     
+#if TARGET_OS_IPHONE
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleMemoryWarning) name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+#endif
     
     NSString *path = [[NSBundle bundleForClass:[self class]] pathForResource:@"JSPatch" ofType:@"js"];
     NSAssert(path, @"can't find JSPatch.js");
@@ -317,6 +322,16 @@ static void setAtomicCopyPropIMP(id slf, SEL selector, id val, NSString *propNam
     objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_COPY);
 }
 
+static id getVarIMP(id slf, SEL selector, NSString *varName) {
+    Ivar ivar = class_getInstanceVariable([slf class], [varName UTF8String]);
+    id theObjc = object_getIvar(slf, ivar);
+    return theObjc;
+}
+static void setVarIMP(id slf, SEL selector, id val, NSString *varName) {
+    Ivar ivar = class_getInstanceVariable([slf class], [varName UTF8String]);
+    object_setIvar(slf, ivar, val);
+}
+
 static char *methodTypesInProtocol(NSString *protocolName, NSString *selectorName, BOOL isInstanceMethod, BOOL isRequired)
 {
     Protocol *protocol = objc_getProtocol([trim(protocolName) cStringUsingEncoding:NSUTF8StringEncoding]);
@@ -417,6 +432,10 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
     class_addMethod(cls, @selector(setWeakProp:forKey:), (IMP)setWeakPropIMP, "v@:@@");
     class_addMethod(cls, @selector(setCopyProp:forKey:), (IMP)setCopyPropIMP, "v@:@@");
     class_addMethod(cls, @selector(setAtomicCopyProp:forKey:), (IMP)setAtomicCopyPropIMP, "v@:@@");
+    
+    // ivar method
+    class_addMethod(cls, @selector(getVar:), (IMP)getVarIMP, "@@:@");
+    class_addMethod(cls, @selector(setVar:forKey:), (IMP)setVarIMP, "v@:@@");
 #pragma clang diagnostic pop
 
     return @{@"cls": className};
