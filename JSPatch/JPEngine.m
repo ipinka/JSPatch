@@ -23,11 +23,22 @@
 
 @end
 
+@interface _JPAtomicWeakAssociatedObject : NSObject
+
+@property (atomic, weak) id value;
+
+@end
+
+@implementation _JPAtomicWeakAssociatedObject
+
+@end
+
 @interface JPBoxing : NSObject
 @property (nonatomic) id obj;
 @property (nonatomic) void *pointer;
 @property (nonatomic) Class cls;
 @property (nonatomic, weak) id weakObj;
+@property (nonatomic, assign) id assignObj;
 - (id)unbox;
 - (void *)unboxPointer;
 - (Class)unboxClass;
@@ -47,11 +58,13 @@ JPBOXING_GEN(boxObj, obj, id)
 JPBOXING_GEN(boxPointer, pointer, void *)
 JPBOXING_GEN(boxClass, cls, Class)
 JPBOXING_GEN(boxWeakObj, weakObj, id)
+JPBOXING_GEN(boxAssignObj, assignObj, id)
 
 - (id)unbox
 {
     if (self.obj) return self.obj;
     if (self.weakObj) return self.weakObj;
+    if (self.assignObj) return self.assignObj;
     return self;
 }
 - (void *)unboxPointer
@@ -86,8 +99,8 @@ static NSMutableDictionary *registeredStruct;
     
     JSContext *context = [[JSContext alloc] init];
     
-    context[@"_OC_defineClass"] = ^(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods) {
-        return defineClass(classDeclaration, instanceMethods, classMethods);
+    context[@"_OC_defineClass"] = ^(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods, JSValue *properties) {
+        return defineClass(classDeclaration, instanceMethods, classMethods, properties);
     };
     
     context[@"_OC_callI"] = ^id(JSValue *obj, NSString *selectorName, JSValue *arguments, BOOL isSuper) {
@@ -162,6 +175,16 @@ static NSMutableDictionary *registeredStruct;
             @synchronized(_TMPMemoryPool) {
                 [_TMPMemoryPool removeObjectForKey:[NSNumber numberWithInteger:[obj hash]]];
             }
+        }
+    };
+    
+    context[@"CleanMemoryLater"] = ^void(JSValue *jsVal) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:self];
+        NSTimeInterval time = jsVal.toNumber.doubleValue;
+        if (!isnan(time)) {
+            [self performSelector:@selector(cleanMemory) withObject:nil afterDelay:time inModes:@[NSRunLoopCommonModes]];
+        } else {
+            [self performSelector:@selector(cleanMemory) withObject:nil afterDelay:0.3 inModes:@[NSRunLoopCommonModes]];
         }
     };
 
@@ -279,6 +302,11 @@ static NSMutableDictionary *registeredStruct;
     [_JSMethodSignatureLock unlock];
 }
 
++ (void)cleanMemory
+{
+    [[self context] evaluateScript:@";CleanGarbage();"];
+}
+
 #pragma mark - Implements
 
 static NSMutableDictionary *_JSOverideMethods;
@@ -299,7 +327,13 @@ static const void *propKey(NSString *propName) {
     return (__bridge const void *)(key);
 }
 static id getPropIMP(id slf, SEL selector, NSString *propName) {
-    return objc_getAssociatedObject(slf, propKey(propName));
+    id obj = objc_getAssociatedObject(slf, propKey(propName));
+    if ([obj class] == [_JPWeakAssociatedObject class] ||
+        [obj class] == [_JPAtomicWeakAssociatedObject class]) {
+        return [(_JPWeakAssociatedObject *)obj value];
+    } else {
+        return obj;
+    }
 }
 static void setPropIMP(id slf, SEL selector, id val, NSString *propName) {
     objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -307,11 +341,22 @@ static void setPropIMP(id slf, SEL selector, id val, NSString *propName) {
 static void setAtomicPropIMP(id slf, SEL selector, id val, NSString *propName) {
     objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_RETAIN);
 }
+static void setAssignPropIMP(id slf, SEL selector, id val, NSString *propName) {
+    objc_setAssociatedObject(slf, propKey(propName), val, OBJC_ASSOCIATION_ASSIGN);
+}
 static void setWeakPropIMP(id slf, SEL selector, id val, NSString *propName) {
     _JPWeakAssociatedObject *assoc = objc_getAssociatedObject(slf, propKey(propName));
     if (!assoc) {
         assoc = [[_JPWeakAssociatedObject alloc] init];
         setPropIMP(slf, selector, assoc, propName);
+    }
+    assoc.value = val;
+}
+static void setAtomicWeakPropIMP(id slf, SEL selector, id val, NSString *propName) {
+    _JPAtomicWeakAssociatedObject *assoc = objc_getAssociatedObject(slf, propKey(propName));
+    if (!assoc) {
+        assoc = [[_JPAtomicWeakAssociatedObject alloc] init];
+        setAtomicPropIMP(slf, selector, assoc, propName);
     }
     assoc.value = val;
 }
@@ -332,6 +377,50 @@ static void setVarIMP(id slf, SEL selector, id val, NSString *varName) {
     object_setIvar(slf, ivar, val);
 }
 
+// Dynamic add property
+static id getDynamicProperty(id slf, SEL selector)
+{
+    NSString *str = NSStringFromSelector(selector);
+    return getPropIMP(slf, nil, str);
+}
+
+#define JP_IMP_SETTER(_name) \
+static void setDynamic##_name##Property(id slf, SEL selector, id val) \
+{ \
+    NSString *str = NSStringFromSelector(selector); \
+    set##_name##PropIMP(slf, nil, val, changeToGetterName(str)); \
+}
+
+JP_IMP_SETTER()
+JP_IMP_SETTER(Atomic)
+JP_IMP_SETTER(Assign)
+JP_IMP_SETTER(Copy)
+JP_IMP_SETTER(AtomicCopy)
+JP_IMP_SETTER(Weak)
+JP_IMP_SETTER(AtomicWeak)
+
+static NSString* changeToGetterName(NSString *originName)
+{
+    if (originName.length < 5) {
+        return originName;
+    } else {
+        NSString *lastStr = [originName substringWithRange:NSMakeRange(4, originName.length-5)];
+        NSString *lowerChar = [originName substringWithRange:NSMakeRange(3, 1)].lowercaseString;
+        return [lowerChar stringByAppendingString:lastStr];
+    }
+}
+
+static NSString* changeToSetterName(NSString *originName)
+{
+    if (originName.length < 1) {
+        return originName;
+    } else {
+        NSString *lastStr = [originName substringFromIndex:1];
+        NSString *upperChar = [originName substringToIndex:1].uppercaseString;
+        return [NSString stringWithFormat:@"set%@%@:", upperChar, lastStr];
+    }
+}
+
 static char *methodTypesInProtocol(NSString *protocolName, NSString *selectorName, BOOL isInstanceMethod, BOOL isRequired)
 {
     Protocol *protocol = objc_getProtocol([trim(protocolName) cStringUsingEncoding:NSUTF8StringEncoding]);
@@ -349,7 +438,7 @@ static char *methodTypesInProtocol(NSString *protocolName, NSString *selectorNam
     return NULL;
 }
 
-static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods)
+static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMethods, JSValue *classMethods, JSValue *properties)
 {
     NSString *className;
     NSString *superClassName;
@@ -370,12 +459,92 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
     className = trim(className);
     superClassName = trim(superClassName);
     
+    NSDictionary *propertiesDict = [properties toDictionary];
     Class cls = NSClassFromString(className);
     if (!cls) {
         Class superCls = NSClassFromString(superClassName);
         cls = objc_allocateClassPair(superCls, className.UTF8String, 0);
         objc_registerClassPair(cls);
     }
+    
+    [propertiesDict enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSString * _Nonnull obj, BOOL * _Nonnull stop) {
+        NSArray *attrs = [obj componentsSeparatedByString:@"-"];
+#if defined(__arm64__)
+        if ([attrs[1] isEqualToString:@"l"]) {
+            attrs = @[attrs[0], @"q"];
+        } else if ([attrs[1] isEqualToString:@"L"]) {
+            attrs = @[attrs[0], @"Q"];
+        }
+#endif
+        if (attrs.count == 2) {
+            NSString *firstStr = [attrs[0] substringToIndex:1];
+            NSString *secondStr = [attrs[0] substringWithRange:NSMakeRange(1, 1)];
+            if ([secondStr isEqualToString:@"S"]) {
+                secondStr = @"&";
+            }
+            objc_property_attribute_t *cattrs = NULL;
+            unsigned int count = 0;
+            if ([attrs[0] isEqualToString:@"NA"]) {
+                cattrs = (objc_property_attribute_t*)calloc(2, sizeof(objc_property_attribute_t));
+                cattrs[0].name = "N";
+                cattrs[0].value = "";
+                cattrs[1].name = "T";
+                cattrs[1].value = [attrs[1] UTF8String];
+                count = 2;
+            } else if ([firstStr isEqualToString:@"N"]) {
+                cattrs = (objc_property_attribute_t*)calloc(3, sizeof(objc_property_attribute_t));
+                cattrs[0].name = "N";
+                cattrs[0].value = "";
+                cattrs[1].name = [secondStr UTF8String];
+                cattrs[1].value = "";
+                cattrs[2].name = "T";
+                cattrs[2].value = [attrs[1] UTF8String];
+                count = 3;
+                
+            } else if ([firstStr isEqualToString:@"A"]) {
+                cattrs = (objc_property_attribute_t*)calloc(2, sizeof(objc_property_attribute_t));
+                cattrs[0].name = [secondStr UTF8String];
+                cattrs[0].value = "";
+                cattrs[1].name = "T";
+                cattrs[1].value = [attrs[1] UTF8String];
+                count = 2;
+            } else {
+                return ;
+            }
+            
+            BOOL result = class_addProperty(cls,
+                                            [key UTF8String],
+                                            cattrs,
+                                            count);
+            free(cattrs);
+            
+            if (result) {
+                class_addMethod(cls, NSSelectorFromString(key), (IMP)getDynamicProperty, "@@:");
+                
+                NSString *mode = attrs[0];
+                SEL newSel = NSSelectorFromString(changeToSetterName(key));
+                if ([mode isEqualToString:@"NS"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicProperty, "v@:@");
+                } else if ([mode isEqualToString:@"AS"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicAtomicProperty, "v@:@");
+                } else if ([mode isEqualToString:@"NC"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicCopyProperty, "v@:@");
+                } else if ([mode isEqualToString:@"AC"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicAtomicCopyProperty, "v@:@");
+                } else if ([mode isEqualToString:@"NW"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicWeakProperty, "v@:@");
+                } else if ([mode isEqualToString:@"AW"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicAtomicWeakProperty, "v@:@");
+                } else if ([mode isEqualToString:@"NA"]) {
+                    class_addMethod(cls, newSel, (IMP)setDynamicAssignProperty, "v@:@");
+                } else {
+                    NSLog(@"Add property method error!");
+                }
+            } else {
+                NSLog(@"Add property error!");
+            }
+        }
+    }];
     
     for (int i = 0; i < 2; i ++) {
         BOOL isInstance = i == 0;
@@ -429,6 +598,7 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
     class_addMethod(cls, @selector(getProp:), (IMP)getPropIMP, "@@:@");
     class_addMethod(cls, @selector(setProp:forKey:), (IMP)setPropIMP, "v@:@@");
     class_addMethod(cls, @selector(setAtomicProp:forKey:), (IMP)setAtomicPropIMP, "v@:@@");
+    class_addMethod(cls, @selector(setAssignProp:forKey:), (IMP)setAssignPropIMP, "v@:@@");
     class_addMethod(cls, @selector(setWeakProp:forKey:), (IMP)setWeakPropIMP, "v@:@@");
     class_addMethod(cls, @selector(setCopyProp:forKey:), (IMP)setCopyPropIMP, "v@:@@");
     class_addMethod(cls, @selector(setAtomicCopyProp:forKey:), (IMP)setAtomicCopyPropIMP, "v@:@@");
@@ -458,8 +628,10 @@ static JSValue* getJSFunctionInObjectHierachy(id slf, NSString *selectorName)
 
 #pragma clang diagnostic pop
 
-static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
+static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, NSInvocation *invocation)
 {
+    BOOL deallocFlag = NO;
+    id slf = assignSlf;
     NSMethodSignature *methodSignature = [invocation methodSignature];
     NSInteger numberOfArguments = [methodSignature numberOfArguments];
     
@@ -488,6 +660,10 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
     NSMutableArray *argList = [[NSMutableArray alloc] init];
     if ([slf class] == slf) {
         [argList addObject:[JSValue valueWithObject:@{@"__clsName": NSStringFromClass([slf class])} inContext:_context]];
+    } else if ([slf class] != slf &&
+               [selectorName isEqualToString:@"dealloc"]) {
+        [argList addObject:[JPBoxing boxAssignObj:slf]];
+        deallocFlag = YES;
     } else {
         [argList addObject:[JPBoxing boxWeakObj:slf]];
     }
@@ -698,6 +874,14 @@ static void JPForwardInvocation(id slf, SEL selector, NSInvocation *invocation)
         default: {
             break;
         }
+    }
+    
+    if (deallocFlag) {
+        slf = nil;
+        Class instClass = object_getClass(assignSlf);
+        Method deallocMethod = class_getInstanceMethod(instClass, NSSelectorFromString(@"ORIGdealloc"));
+        void (*originalDealloc)(__unsafe_unretained id, SEL) = (__typeof__(originalDealloc))method_getImplementation(deallocMethod);
+        originalDealloc(assignSlf, NSSelectorFromString(@"dealloc"));
     }
 }
 
