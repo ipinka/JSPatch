@@ -453,7 +453,7 @@ static void defineProtocol(NSString *protocolDeclaration, JSValue *instProtocol,
     }
 }
 
-static void addGroupMethodsToProtocol(Protocol* protocol,JSValue *groupMethods,BOOL isInstance)
+static void addGroupMethodsToProtocol(Protocol *protocol, JSValue *groupMethods, BOOL isInstance)
 {
     NSDictionary *groupDic = [groupMethods toDictionary];
     for (NSString *jpSelector in groupDic.allKeys) {
