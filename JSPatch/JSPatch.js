@@ -137,12 +137,12 @@ var global = this
     }
   }
 
-  global.defineClass = function(declaration, instMethods, clsMethods) {
+  global.defineClass = function(declaration, instMethods, clsMethods, addProperties) {
     var newInstMethods = {}, newClsMethods = {}
     _formatDefineMethods(instMethods, newInstMethods)
     _formatDefineMethods(clsMethods, newClsMethods)
 
-    var ret = _OC_defineClass(declaration, newInstMethods, newClsMethods)
+    var ret = _OC_defineClass(declaration, newInstMethods, newClsMethods, addProperties)
 
     return require(ret["cls"])
   }
@@ -178,5 +178,12 @@ var global = this
   global.NO = 0
   global.nsnull = _OC_null
   global._formatOCToJS = _formatOCToJS
-  
+ 
+  global.CleanGarbage = function() {
+    var x = {};
+    for(var i = 0;i<15000;i++){
+      x[i]=[];
+    };
+    x=null;
+  } 
 })()
