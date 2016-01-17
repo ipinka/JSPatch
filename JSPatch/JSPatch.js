@@ -147,8 +147,8 @@ var global = this
     return require(ret["cls"])
   }
 
-  global.defineProtocol = function(declaration, instProtos , clsProtos) {
-      var ret = _OC_defineProtocol(declaration, instProtos,clsProtos);
+  global.defineProtocol = function(declaration, instProtos, clsProtos) {
+      var ret = _OC_defineProtocol(declaration, instProtos, clsProtos);
       return ret
   }
 
