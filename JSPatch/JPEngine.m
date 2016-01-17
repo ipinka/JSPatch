@@ -319,7 +319,47 @@ static NSMutableDictionary *_propKeys;
 static NSMutableDictionary *_JSMethodSignatureCache;
 static NSLock              *_JSMethodSignatureLock;
 static NSRecursiveLock     *_JSMethodForwardCallLock;
-static NSMutableDictionary *_protocolTypeEncodeDict;
+
+static NSDictionary* ProtocolTypeEncodeDict(void)
+{
+    static NSMutableDictionary *protocolTypeEncodeDict = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        protocolTypeEncodeDict = [[NSMutableDictionary alloc] init];
+#define JP_DEFINE_TYPE_ENCODE_CASE(_type) \
+[protocolTypeEncodeDict setObject:[NSString stringWithUTF8String:@encode(_type)] forKey:@#_type];\
+
+        JP_DEFINE_TYPE_ENCODE_CASE(id);
+        JP_DEFINE_TYPE_ENCODE_CASE(BOOL);
+        JP_DEFINE_TYPE_ENCODE_CASE(int);
+        JP_DEFINE_TYPE_ENCODE_CASE(void);
+        JP_DEFINE_TYPE_ENCODE_CASE(char);
+        JP_DEFINE_TYPE_ENCODE_CASE(short);
+        JP_DEFINE_TYPE_ENCODE_CASE(unsigned short);
+        JP_DEFINE_TYPE_ENCODE_CASE(unsigned int);
+        JP_DEFINE_TYPE_ENCODE_CASE(long);
+        JP_DEFINE_TYPE_ENCODE_CASE(unsigned long);
+        JP_DEFINE_TYPE_ENCODE_CASE(long long);
+        JP_DEFINE_TYPE_ENCODE_CASE(float);
+        JP_DEFINE_TYPE_ENCODE_CASE(double);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGFloat);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGSize);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGRect);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGPoint);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGVector);
+        JP_DEFINE_TYPE_ENCODE_CASE(NSRange);
+        JP_DEFINE_TYPE_ENCODE_CASE(UIEdgeInsets);
+        JP_DEFINE_TYPE_ENCODE_CASE(NSInteger);
+        JP_DEFINE_TYPE_ENCODE_CASE(Class);
+        JP_DEFINE_TYPE_ENCODE_CASE(SEL);
+        JP_DEFINE_TYPE_ENCODE_CASE(void*);
+        
+        [protocolTypeEncodeDict setObject:@"@?" forKey:@"block"];
+        [protocolTypeEncodeDict setObject:@"^@" forKey:@"id*"];
+    });
+    
+    return protocolTypeEncodeDict;
+}
 
 static const void *propKey(NSString *propName) {
     if (!_propKeys) _propKeys = [[NSMutableDictionary alloc] init];
@@ -473,47 +513,13 @@ static void addGroupMethodsToProtocol(Protocol *protocol, JSValue *groupMethods,
             addMethodToProtocol(protocol, selectorName, typeEncode, isInstance);
             
         } else {
-            if (!_protocolTypeEncodeDict) {
-                _protocolTypeEncodeDict = [[NSMutableDictionary alloc] init];
-                #define JP_DEFINE_TYPE_ENCODE_CASE(_type) \
-                    [_protocolTypeEncodeDict setObject:[NSString stringWithUTF8String:@encode(_type)] forKey:@#_type];\
-
-                JP_DEFINE_TYPE_ENCODE_CASE(id);
-                JP_DEFINE_TYPE_ENCODE_CASE(BOOL);
-                JP_DEFINE_TYPE_ENCODE_CASE(int);
-                JP_DEFINE_TYPE_ENCODE_CASE(void);
-                JP_DEFINE_TYPE_ENCODE_CASE(char);
-                JP_DEFINE_TYPE_ENCODE_CASE(short);
-                JP_DEFINE_TYPE_ENCODE_CASE(unsigned short);
-                JP_DEFINE_TYPE_ENCODE_CASE(unsigned int);
-                JP_DEFINE_TYPE_ENCODE_CASE(long);
-                JP_DEFINE_TYPE_ENCODE_CASE(unsigned long);
-                JP_DEFINE_TYPE_ENCODE_CASE(long long);
-                JP_DEFINE_TYPE_ENCODE_CASE(float);
-                JP_DEFINE_TYPE_ENCODE_CASE(double);
-                JP_DEFINE_TYPE_ENCODE_CASE(CGFloat);
-                JP_DEFINE_TYPE_ENCODE_CASE(CGSize);
-                JP_DEFINE_TYPE_ENCODE_CASE(CGRect);
-                JP_DEFINE_TYPE_ENCODE_CASE(CGPoint);
-                JP_DEFINE_TYPE_ENCODE_CASE(CGVector);
-                JP_DEFINE_TYPE_ENCODE_CASE(NSRange);
-                JP_DEFINE_TYPE_ENCODE_CASE(UIEdgeInsets);
-                JP_DEFINE_TYPE_ENCODE_CASE(NSInteger);
-                JP_DEFINE_TYPE_ENCODE_CASE(Class);
-                JP_DEFINE_TYPE_ENCODE_CASE(SEL);
-                JP_DEFINE_TYPE_ENCODE_CASE(void*);
-
-                [_protocolTypeEncodeDict setObject:@"@?" forKey:@"block"];
-                [_protocolTypeEncodeDict setObject:@"^@" forKey:@"id*"];
-            }
-            
-            NSString *returnEncode = _protocolTypeEncodeDict[returnString];
+            NSString *returnEncode = ProtocolTypeEncodeDict()[returnString];
             if (returnEncode.length > 0) {
                 NSMutableString *encode = [returnEncode mutableCopy];
                 [encode appendString:@"@:"];
                 for (NSInteger i = 0; i < argStrArr.count; i++) {
                     NSString *argStr = trim([argStrArr objectAtIndex:i]);
-                    NSString *argEncode = _protocolTypeEncodeDict[argStr];
+                    NSString *argEncode = ProtocolTypeEncodeDict()[argStr];
                     if (!argEncode) {
                         NSString *argClassName = trim([argStr stringByReplacingOccurrencesOfString:@"*" withString:@""]);
                         if (NSClassFromString(argClassName) != NULL) {
@@ -601,7 +607,9 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
                 cattrs[0].name = "N";
                 cattrs[0].value = "";
                 cattrs[1].name = "T";
-                cattrs[1].value = [attrs[1] UTF8String];
+                cattrs[1].value = (ProtocolTypeEncodeDict()[attrs[1]]?
+                                   [ProtocolTypeEncodeDict()[attrs[1]] UTF8String]:
+                                   [attrs[1] UTF8String]);
                 count = 2;
             } else if ([firstStr isEqualToString:@"N"]) {
                 cattrs = (objc_property_attribute_t*)calloc(3, sizeof(objc_property_attribute_t));
@@ -610,7 +618,9 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
                 cattrs[1].name = [secondStr UTF8String];
                 cattrs[1].value = "";
                 cattrs[2].name = "T";
-                cattrs[2].value = [attrs[1] UTF8String];
+                cattrs[2].value = (ProtocolTypeEncodeDict()[attrs[1]]?
+                                   [ProtocolTypeEncodeDict()[attrs[1]] UTF8String]:
+                                   [attrs[1] UTF8String]);
                 count = 3;
                 
             } else if ([firstStr isEqualToString:@"A"]) {
@@ -618,7 +628,9 @@ static NSDictionary *defineClass(NSString *classDeclaration, JSValue *instanceMe
                 cattrs[0].name = [secondStr UTF8String];
                 cattrs[0].value = "";
                 cattrs[1].name = "T";
-                cattrs[1].value = [attrs[1] UTF8String];
+                cattrs[1].value = (ProtocolTypeEncodeDict()[attrs[1]]?
+                                   [ProtocolTypeEncodeDict()[attrs[1]] UTF8String]:
+                                   [attrs[1] UTF8String]);
                 count = 2;
             } else {
                 return ;
