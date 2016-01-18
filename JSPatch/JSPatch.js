@@ -191,4 +191,12 @@ var global = this
     };
     x=null;
   } 
+
+  global.strictDefineClass = function(declaration, instMethods, clsMethods, addProperties) {
+    if (!_OC_checkClass(declaration))
+      return defineClass(declaration, instMethods, clsMethods, addProperties);
+    else
+      return null;
+  }
+
 })()
