@@ -191,6 +191,12 @@ static NSMutableDictionary *registeredStruct;
             [self performSelector:@selector(cleanMemory) withObject:nil afterDelay:0.3 inModes:@[NSRunLoopCommonModes]];
         }
     };
+    
+    context[@"_OC_checkClass"] = ^id(NSString *jsString) {
+        NSString *className = [[jsString componentsSeparatedByString:@":"] firstObject];
+        className = trim(className);
+        return @(className.length && NSClassFromString(className));
+    };
 
     context[@"_OC_log"] = ^() {
         NSArray *args = [JSContext currentArguments];
