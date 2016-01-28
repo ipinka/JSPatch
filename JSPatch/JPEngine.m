@@ -356,6 +356,7 @@ static NSDictionary* ProtocolTypeEncodeDict(void)
         JP_DEFINE_TYPE_ENCODE_CASE(NSRange);
         JP_DEFINE_TYPE_ENCODE_CASE(UIEdgeInsets);
         JP_DEFINE_TYPE_ENCODE_CASE(NSInteger);
+        JP_DEFINE_TYPE_ENCODE_CASE(NSUInteger);
         JP_DEFINE_TYPE_ENCODE_CASE(Class);
         JP_DEFINE_TYPE_ENCODE_CASE(SEL);
         JP_DEFINE_TYPE_ENCODE_CASE(void*);
@@ -1364,21 +1365,127 @@ static id genCallbackBlock(JSValue *jsVal)
             [list addObject:formatOCToJS([NSNumber numberWithLongLong:(long long)_paramName])]; \
         }   \
     }
+    
+    #define BLK_RETURN_BLOCK(_returnType, _typeMethod) \
+    { \
+        if ([returnType isEqualToString:@#_returnType]) { \
+            return \
+            ^_returnType(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) { \
+                NSMutableArray *list = [[NSMutableArray alloc] init]; \
+                BLK_TRAITS_ARG(0, p0) \
+                BLK_TRAITS_ARG(1, p1) \
+                BLK_TRAITS_ARG(2, p2) \
+                BLK_TRAITS_ARG(3, p3) \
+                BLK_TRAITS_ARG(4, p4) \
+                BLK_TRAITS_ARG(5, p5) \
+                JSValue *ret = [jsVal[@"cb"] callWithArguments:list]; \
+                return [formatJSToOC(ret) _typeMethod]; \
+            }; \
+        } \
+    };
 
     NSArray *argTypes = [[jsVal[@"args"] toString] componentsSeparatedByString:@","];
-    id cb = ^id(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
-        NSMutableArray *list = [[NSMutableArray alloc] init];
-        BLK_TRAITS_ARG(0, p0)
-        BLK_TRAITS_ARG(1, p1)
-        BLK_TRAITS_ARG(2, p2)
-        BLK_TRAITS_ARG(3, p3)
-        BLK_TRAITS_ARG(4, p4)
-        BLK_TRAITS_ARG(5, p5)
-        JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
-        return formatJSToOC(ret);
-    };
+    NSString *returnType = [jsVal[@"returnType"] toString];
+
+    if (!returnType.length ||
+        [returnType isEqualToString:@"id"] ||
+        [returnType isEqualToString:@"void"] ||
+        !ProtocolTypeEncodeDict()[returnType]) {
+        return
+        ^id(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
+            NSMutableArray *list = [[NSMutableArray alloc] init];
+            BLK_TRAITS_ARG(0, p0)
+            BLK_TRAITS_ARG(1, p1)
+            BLK_TRAITS_ARG(2, p2)
+            BLK_TRAITS_ARG(3, p3)
+            BLK_TRAITS_ARG(4, p4)
+            BLK_TRAITS_ARG(5, p5)
+            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            return formatJSToOC(ret);
+        };
+    }
     
-    return cb;
+    BLK_RETURN_BLOCK(BOOL, boolValue);
+    BLK_RETURN_BLOCK(int, intValue);
+    BLK_RETURN_BLOCK(char, charValue);
+    BLK_RETURN_BLOCK(short, shortValue);
+    BLK_RETURN_BLOCK(unsigned short, unsignedShortValue);
+    BLK_RETURN_BLOCK(unsigned int, unsignedIntValue);
+    BLK_RETURN_BLOCK(long, longValue);
+    BLK_RETURN_BLOCK(unsigned long, unsignedLongValue);
+    BLK_RETURN_BLOCK(long long, longLongValue);
+    BLK_RETURN_BLOCK(float, floatValue);
+    BLK_RETURN_BLOCK(double, doubleValue);
+    BLK_RETURN_BLOCK(CGSize, CGSizeValue);
+    BLK_RETURN_BLOCK(CGRect, CGRectValue);
+    BLK_RETURN_BLOCK(CGPoint, CGPointValue);
+    BLK_RETURN_BLOCK(CGVector, CGVectorValue);
+    BLK_RETURN_BLOCK(NSRange, rangeValue);
+    BLK_RETURN_BLOCK(UIEdgeInsets, UIEdgeInsetsValue);
+    BLK_RETURN_BLOCK(NSInteger, integerValue);
+    BLK_RETURN_BLOCK(NSUInteger, unsignedIntValue);
+#if CGFLOAT_IS_DOUBLE
+    BLK_RETURN_BLOCK(CGFloat, doubleValue);
+#else
+    BLK_RETURN_BLOCK(CGFloat, floatValue);
+#endif
+    
+    if ([returnType isEqualToString:@"SEL"]) {
+        return
+        ^SEL(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
+            NSMutableArray *list = [[NSMutableArray alloc] init];
+            BLK_TRAITS_ARG(0, p0)
+            BLK_TRAITS_ARG(1, p1)
+            BLK_TRAITS_ARG(2, p2)
+            BLK_TRAITS_ARG(3, p3)
+            BLK_TRAITS_ARG(4, p4)
+            BLK_TRAITS_ARG(5, p5)
+            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            return NSSelectorFromString(formatJSToOC(ret));
+        };
+    }
+    
+    if ([returnType isEqualToString:@"Class"]) {
+        return
+        ^Class(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
+            NSMutableArray *list = [[NSMutableArray alloc] init];
+            BLK_TRAITS_ARG(0, p0)
+            BLK_TRAITS_ARG(1, p1)
+            BLK_TRAITS_ARG(2, p2)
+            BLK_TRAITS_ARG(3, p3)
+            BLK_TRAITS_ARG(4, p4)
+            BLK_TRAITS_ARG(5, p5)
+            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            JPBoxing *valObj = formatJSToOC(ret);
+            if ([valObj isKindOfClass:[JPBoxing class]]) {
+                return [((JPBoxing *)valObj) unboxClass];
+            } else {
+                return Nil;
+            }
+        };
+    }
+    
+    if ([returnType isEqualToString:@"void*"]) {
+        return
+        ^void*(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
+            NSMutableArray *list = [[NSMutableArray alloc] init];
+            BLK_TRAITS_ARG(0, p0)
+            BLK_TRAITS_ARG(1, p1)
+            BLK_TRAITS_ARG(2, p2)
+            BLK_TRAITS_ARG(3, p3)
+            BLK_TRAITS_ARG(4, p4)
+            BLK_TRAITS_ARG(5, p5)
+            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            JPBoxing *valObj = formatJSToOC(ret);
+            if ([valObj isKindOfClass:[JPBoxing class]]) {
+                return [((JPBoxing *)valObj) unboxPointer];
+            } else {
+                return Nil;
+            }
+        };
+    }
+    
+    return nil;
 }
 
 #pragma mark - Struct
