@@ -152,7 +152,7 @@ var global = this
       return ret
   }
 
-  global.block = function(args, cb) {
+  global.block = function(args, cb, returnType) {
     var slf = this
     if (args instanceof Function) {
       cb = args
@@ -162,7 +162,7 @@ var global = this
       var args = Array.prototype.slice.call(arguments)
       return cb.apply(slf, _formatOCToJS(args))
     }
-    return {args: args, cb: callback, __isBlock: 1}
+    return {args: args, cb: callback, __isBlock: 1, returnType: returnType}
   }
   
   if (global.console) {
