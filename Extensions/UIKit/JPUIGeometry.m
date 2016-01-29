@@ -16,8 +16,13 @@
 + (void)main:(JSContext *)context
 {
     [JPEngine defineStruct:@{@"name": @"UIEdgeInsets",
-                             @"types": @"dddd",
+                             @"types": @"FFFF",
                              @"keys": @[@"top", @"left", @"bottom", @"right"]
+                             }];
+    
+    [JPEngine defineStruct:@{@"name": @"UIOffset",
+                             @"types": @"FF",
+                             @"keys": @[@"horizontal", @"vertical"]
                              }];
     
     context[@"CGRectFromString"]   = ^CGRect(NSString *string) {
