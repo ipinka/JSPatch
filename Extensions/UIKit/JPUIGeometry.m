@@ -17,22 +17,19 @@
 {
     [JPEngine defineStruct:@{@"name": @"UIEdgeInsets",
                              @"types": @"dddd",
-                             @"keys": @[@"bottom", @"left", @"right", @"top"]
+                             @"keys": @[@"top", @"left", @"bottom", @"right"]
                              }];
     
-    context[@"CGRectFromString"]   = ^NSDictionary *(NSString *string) {
-        CGRect rect =  CGRectFromString(string);
-        return [JPCGGeometry rectDictOfStruct:&rect];
+    context[@"CGRectFromString"]   = ^CGRect(NSString *string) {
+        return CGRectFromString(string);
     };
     
-    context[@"CGSizeFromString"]   = ^NSDictionary *(NSString *string) {
-        CGSize size =  CGSizeFromString(string);
-        return [JPCGGeometry sizeDictOfStruct:&size];
+    context[@"CGSizeFromString"]   = ^CGSize(NSString *string) {
+        return CGSizeFromString(string);
     };
     
-    context[@"CGPointFromString"]  = ^NSDictionary *(NSString *string) {
-        CGPoint point =  CGPointFromString(string);
-        return [JPCGGeometry pointDictOfStruct:&point];
+    context[@"CGPointFromString"]  = ^CGPoint(NSString *string) {
+        return CGPointFromString(string);
     };
     
     context[@"CGVectorFromString"] = ^NSDictionary *(NSString *string) {
