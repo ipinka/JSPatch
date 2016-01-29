@@ -994,6 +994,7 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
                     NSDictionary *dict = formatJSToOC(jsval);
                     getStructDataWithDict(ret, dict, structDefine);
                     [invocation setReturnValue:ret];
+                    free(ret);
                 }
             }
             break;
