@@ -348,15 +348,17 @@ static NSDictionary* ProtocolTypeEncodeDict(void)
         JP_DEFINE_TYPE_ENCODE_CASE(long long);
         JP_DEFINE_TYPE_ENCODE_CASE(float);
         JP_DEFINE_TYPE_ENCODE_CASE(double);
+        JP_DEFINE_TYPE_ENCODE_CASE(NSInteger);
+        JP_DEFINE_TYPE_ENCODE_CASE(NSUInteger);
         JP_DEFINE_TYPE_ENCODE_CASE(CGFloat);
         JP_DEFINE_TYPE_ENCODE_CASE(CGSize);
         JP_DEFINE_TYPE_ENCODE_CASE(CGRect);
         JP_DEFINE_TYPE_ENCODE_CASE(CGPoint);
-        JP_DEFINE_TYPE_ENCODE_CASE(CGVector);
         JP_DEFINE_TYPE_ENCODE_CASE(NSRange);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGVector);
+        JP_DEFINE_TYPE_ENCODE_CASE(CGAffineTransform);
+        JP_DEFINE_TYPE_ENCODE_CASE(UIOffset);
         JP_DEFINE_TYPE_ENCODE_CASE(UIEdgeInsets);
-        JP_DEFINE_TYPE_ENCODE_CASE(NSInteger);
-        JP_DEFINE_TYPE_ENCODE_CASE(NSUInteger);
         JP_DEFINE_TYPE_ENCODE_CASE(Class);
         JP_DEFINE_TYPE_ENCODE_CASE(SEL);
         JP_DEFINE_TYPE_ENCODE_CASE(void*);
@@ -1383,6 +1385,24 @@ static id genCallbackBlock(JSValue *jsVal)
             }; \
         } \
     };
+    
+    #define BLK_RETURN_BLOCK_SP(_returnType, _typeMethod) \
+    { \
+        if ([returnType isEqualToString:@#_returnType]) { \
+            return \
+            ^_returnType(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) { \
+                NSMutableArray *list = [[NSMutableArray alloc] init]; \
+                BLK_TRAITS_ARG(0, p0) \
+                BLK_TRAITS_ARG(1, p1) \
+                BLK_TRAITS_ARG(2, p2) \
+                BLK_TRAITS_ARG(3, p3) \
+                BLK_TRAITS_ARG(4, p4) \
+                BLK_TRAITS_ARG(5, p5) \
+                JSValue *ret = [jsVal[@"cb"] callWithArguments:list]; \
+                return [ret _typeMethod]; \
+            }; \
+        } \
+    };
 
     NSArray *argTypes = [[jsVal[@"args"] toString] componentsSeparatedByString:@","];
     NSString *returnType = [jsVal[@"returnType"] toString];
@@ -1416,20 +1436,28 @@ static id genCallbackBlock(JSValue *jsVal)
     BLK_RETURN_BLOCK(long long, longLongValue);
     BLK_RETURN_BLOCK(float, floatValue);
     BLK_RETURN_BLOCK(double, doubleValue);
-    BLK_RETURN_BLOCK(CGSize, CGSizeValue);
-    BLK_RETURN_BLOCK(CGRect, CGRectValue);
-    BLK_RETURN_BLOCK(CGPoint, CGPointValue);
-    BLK_RETURN_BLOCK(CGVector, CGVectorValue);
-    BLK_RETURN_BLOCK(NSRange, rangeValue);
-    BLK_RETURN_BLOCK(UIEdgeInsets, UIEdgeInsetsValue);
     BLK_RETURN_BLOCK(NSInteger, integerValue);
     BLK_RETURN_BLOCK(NSUInteger, unsignedIntValue);
+    
+    // 判断CGFloat的真实类型
 #if CGFLOAT_IS_DOUBLE
     BLK_RETURN_BLOCK(CGFloat, doubleValue);
 #else
     BLK_RETURN_BLOCK(CGFloat, floatValue);
 #endif
+    // JS原生支持的结构体
+    BLK_RETURN_BLOCK_SP(CGSize, toSize);
+    BLK_RETURN_BLOCK_SP(CGRect, toRect);
+    BLK_RETURN_BLOCK_SP(CGPoint, toPoint);
+    BLK_RETURN_BLOCK_SP(NSRange, toRange);
     
+    // 非原生支持，用NSValue转换，不打算直接支持字典转换
+    BLK_RETURN_BLOCK(CGVector, CGVectorValue);
+    BLK_RETURN_BLOCK(CGAffineTransform, CGAffineTransformValue);
+    BLK_RETURN_BLOCK(UIOffset, UIOffsetValue);
+    BLK_RETURN_BLOCK(UIEdgeInsets, UIEdgeInsetsValue);
+    
+    // 其他特殊情况
     if ([returnType isEqualToString:@"SEL"]) {
         return
         ^SEL(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
