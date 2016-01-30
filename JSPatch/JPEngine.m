@@ -921,7 +921,7 @@ static void JPForwardInvocation(__unsafe_unretained id assignSlf, SEL selector, 
             JP_FWD_RET_CASE_RET(_typeChar, _type, _type ret = [[jsval toObject] _typeSelector];)   \
 
         #define JP_FWD_RET_CODE_ID \
-            id ret = formatJSToOC(jsval); \
+            id __autoreleasing ret = formatJSToOC(jsval); \
             if (ret == _nilObj ||   \
                 ([ret isKindOfClass:[NSNumber class]] && strcmp([ret objCType], "c") == 0 && ![ret boolValue])) ret = nil;  \
 
@@ -1805,6 +1805,11 @@ static id _unboxOCObjectToJS(id obj)
     } else{
         return [((JPBoxing *)[val toObject]) unboxPointer];
     }
+}
+
++ (id)formatRetainedCFTypeOCToJS:(CFTypeRef)CF_CONSUMED type
+{
+    return formatOCToJS([JPBoxing boxPointer:(void *)type]);
 }
 
 + (id)formatPointerOCToJS:(void *)pointer
