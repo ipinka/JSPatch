@@ -1368,19 +1368,22 @@ static id genCallbackBlock(JSValue *jsVal)
         }   \
     }
     
+    #define BLK_BLOCK_CALL \
+    NSMutableArray *list = [[NSMutableArray alloc] init]; \
+    BLK_TRAITS_ARG(0, p0) \
+    BLK_TRAITS_ARG(1, p1) \
+    BLK_TRAITS_ARG(2, p2) \
+    BLK_TRAITS_ARG(3, p3) \
+    BLK_TRAITS_ARG(4, p4) \
+    BLK_TRAITS_ARG(5, p5) \
+    JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+
     #define BLK_RETURN_BLOCK(_returnType, _typeMethod) \
     { \
         if ([returnType isEqualToString:@#_returnType]) { \
             return \
             ^_returnType(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) { \
-                NSMutableArray *list = [[NSMutableArray alloc] init]; \
-                BLK_TRAITS_ARG(0, p0) \
-                BLK_TRAITS_ARG(1, p1) \
-                BLK_TRAITS_ARG(2, p2) \
-                BLK_TRAITS_ARG(3, p3) \
-                BLK_TRAITS_ARG(4, p4) \
-                BLK_TRAITS_ARG(5, p5) \
-                JSValue *ret = [jsVal[@"cb"] callWithArguments:list]; \
+                BLK_BLOCK_CALL \
                 return [formatJSToOC(ret) _typeMethod]; \
             }; \
         } \
@@ -1391,14 +1394,7 @@ static id genCallbackBlock(JSValue *jsVal)
         if ([returnType isEqualToString:@#_returnType]) { \
             return \
             ^_returnType(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) { \
-                NSMutableArray *list = [[NSMutableArray alloc] init]; \
-                BLK_TRAITS_ARG(0, p0) \
-                BLK_TRAITS_ARG(1, p1) \
-                BLK_TRAITS_ARG(2, p2) \
-                BLK_TRAITS_ARG(3, p3) \
-                BLK_TRAITS_ARG(4, p4) \
-                BLK_TRAITS_ARG(5, p5) \
-                JSValue *ret = [jsVal[@"cb"] callWithArguments:list]; \
+                BLK_BLOCK_CALL \
                 return [ret _typeMethod]; \
             }; \
         } \
@@ -1413,14 +1409,7 @@ static id genCallbackBlock(JSValue *jsVal)
         !ProtocolTypeEncodeDict()[returnType]) {
         return
         ^id(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
-            NSMutableArray *list = [[NSMutableArray alloc] init];
-            BLK_TRAITS_ARG(0, p0)
-            BLK_TRAITS_ARG(1, p1)
-            BLK_TRAITS_ARG(2, p2)
-            BLK_TRAITS_ARG(3, p3)
-            BLK_TRAITS_ARG(4, p4)
-            BLK_TRAITS_ARG(5, p5)
-            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            BLK_BLOCK_CALL
             return formatJSToOC(ret);
         };
     }
@@ -1461,14 +1450,7 @@ static id genCallbackBlock(JSValue *jsVal)
     if ([returnType isEqualToString:@"SEL"]) {
         return
         ^SEL(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
-            NSMutableArray *list = [[NSMutableArray alloc] init];
-            BLK_TRAITS_ARG(0, p0)
-            BLK_TRAITS_ARG(1, p1)
-            BLK_TRAITS_ARG(2, p2)
-            BLK_TRAITS_ARG(3, p3)
-            BLK_TRAITS_ARG(4, p4)
-            BLK_TRAITS_ARG(5, p5)
-            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            BLK_BLOCK_CALL
             return NSSelectorFromString(formatJSToOC(ret));
         };
     }
@@ -1476,14 +1458,7 @@ static id genCallbackBlock(JSValue *jsVal)
     if ([returnType isEqualToString:@"Class"]) {
         return
         ^Class(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
-            NSMutableArray *list = [[NSMutableArray alloc] init];
-            BLK_TRAITS_ARG(0, p0)
-            BLK_TRAITS_ARG(1, p1)
-            BLK_TRAITS_ARG(2, p2)
-            BLK_TRAITS_ARG(3, p3)
-            BLK_TRAITS_ARG(4, p4)
-            BLK_TRAITS_ARG(5, p5)
-            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            BLK_BLOCK_CALL
             JPBoxing *valObj = formatJSToOC(ret);
             if ([valObj isKindOfClass:[JPBoxing class]]) {
                 return [((JPBoxing *)valObj) unboxClass];
@@ -1496,14 +1471,7 @@ static id genCallbackBlock(JSValue *jsVal)
     if ([returnType isEqualToString:@"void*"]) {
         return
         ^void*(void *p0, void *p1, void *p2, void *p3, void *p4, void *p5) {
-            NSMutableArray *list = [[NSMutableArray alloc] init];
-            BLK_TRAITS_ARG(0, p0)
-            BLK_TRAITS_ARG(1, p1)
-            BLK_TRAITS_ARG(2, p2)
-            BLK_TRAITS_ARG(3, p3)
-            BLK_TRAITS_ARG(4, p4)
-            BLK_TRAITS_ARG(5, p5)
-            JSValue *ret = [jsVal[@"cb"] callWithArguments:list];
+            BLK_BLOCK_CALL
             JPBoxing *valObj = formatJSToOC(ret);
             if ([valObj isKindOfClass:[JPBoxing class]]) {
                 return [((JPBoxing *)valObj) unboxPointer];
